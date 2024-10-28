@@ -1,30 +1,42 @@
 # SEATRAC TB Hackday
 
-Wednesday, December 13, 2023
-9 AM to 3 PM (Pacific Time)
+Tuesday, December 10, 2024
+9 AM to 4 PM (EDT and PDT)
+(see [Agenda](https://github.com/FredHutch/seatrac-hackday-2024/blob/main/agenda.md) for details)
 
-UW SLU F106/F107 and Zoom (University of Washington South Lake Union Campus)
-([Zoom link, registration required](https://washington.zoom.us/meeting/register/tJ0sf-GtrjMtHtAekQf7Ew-m4_oYOvm78vVB))
+## Seattle:
+Fred Hutchinson Cancer Center
+Steam Plant Building
+O’Mack Symposium Suite
+1241 Eastlake Ave E, Seattle, WA 98102
 
-Goal: Collaborating in small groups to develop new analytical insights
-from 4 published bulk and single-cell RNAseq datasets that profile NHP
-host gene expression during Mtb infection and BCG vaccination.
+[FH Campus Map](https://www.fredhutch.org/en/about/contact-us/campus-map.html)
+
+## Emory:
+UPDATE LOCTION INFO HERE
+
+
+## Virtual:
+
+Zoom ([Zoom link, registration required](new_link_needed)). 
+
+## Objectives
+
+Learning, teaching and collaborating! Collaborating in small groups to develop new analytical insights from published bulk and single-cell RNAseq datasets that profile NHP host gene expression during Mtb infection and BCG vaccination.
 
 Datasets: PMIDs: 37097292, 35483355, 37267955, 37390827
-
-Program: [Agenda is here](https://github.com/FredHutch/seatrac-hackday-2023/blob/main/agenda.md). Short talks to introduce datasets, workshop tutorials on analysis techniques, and open-ended hack time to plan and execute analyses.
 
 Breakfast included starting at 8:30am, lunch included at noon, happy hour snacks included starting at 3pm.
 
 Registration: 
-[Online registration using Zoom](https://washington.zoom.us/meeting/register/tJ0sf-GtrjMtHtAekQf7Ew-m4_oYOvm78vVB)
+[Online registration using Zoom]([new_link_needed])
 
-# TUTORIALS
+## Tutorials from TB Lunch & Learn sessions
 
-1. [Bulk RNAseq differential expression](https://fredhutch.github.io/seatrac-hackday-2023/1.rnaseq_tutorial/2.Bulk_RNAseq_deg_analysis.html)
-2. [scRNAseq ordinations](https://fredhutch.github.io/seatrac-hackday-2023/1.rnaseq_tutorial/3.scRNAseq_analysis.html)
+1. [Bulk RNAseq differential expression](link)
+2. [scRNAseq ordinations](link)
 
-# DATASETS 
+# Datasets
 
 Link to aggregated datasets on [Figshare](https://figshare.com/articles/dataset/SEATRAC_TB_Hackday_2023/24425053)
 

@@ -150,7 +150,7 @@ save(klm, file = "CD4_model.RData")
 
 
 ```{r}
-load("CD4_model.RData")
+load("~/Documents/GitHub/seatrac-hackday-2024/hacks/Madison_Cox/CD4_model.RData")
 summarise_kmFit(fdr = klm$lme) %>% gt() %>% gt_theme_538()
 
 plot_volcano(model_result = klm,
@@ -176,7 +176,7 @@ save(klm2, file = "CD8_model.RData")
 
 
 ```{r}
-load("CD8_model.RData")
+load("~/Documents/GitHub/seatrac-hackday-2024/hacks/Madison_Cox/CD8_model.RData")
 
 summarise_kmFit(fdr = klm2$lme) %>% gt() %>% gt_theme_538()
 
@@ -335,7 +335,7 @@ save(brom_test_list, brom_list, file = "bromley_kimma.RData")
 
 
 ```{r warning=FALSE}
-load("bromley_kimma.RData")
+load("~/Documents/GitHub/seatrac-hackday-2024/hacks/Madison_Cox/bromley_kimma.RData")
 ggplot(meta_brom, aes(x = logCFU)) +
   geom_density(fill = "blue", alpha = 0.3) +
   labs(title = "Distribution of logCFU", x = "logCFU", y = "Density") +

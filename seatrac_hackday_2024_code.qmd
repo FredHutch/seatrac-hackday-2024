@@ -159,7 +159,7 @@ plot_volcano(model_result = klm,
 ```
 
 
-### Just CD4_gran samples, association with logCFU
+### Just CD8_gran samples, association with logCFU
 
 ```{r eval = FALSE}
 # Use the same voom object as with limma

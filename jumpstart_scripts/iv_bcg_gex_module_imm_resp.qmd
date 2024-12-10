@@ -59,7 +59,7 @@ library(multcomp) # For FDR adjustment
 # NOTE --- REPLACE the <data_dir> FOLDER DESTINTATION AS APPROPRIATE
 # Define the project folder and file paths
 # data_dir <- file.path("/fh/fast/gilbert_p/fg_data", "SEATRAC", "TB_hackday_2024", "processed_data")
-data_dir <- file.path("/home/processed_data")
+data_dir <- '~/Documents/GitHub/seatrac-hackday-2024/data/'
 
 meta_fn <- file.path(data_dir, "liu_etal_metadata.csv")
 module_fn <- file.path(data_dir, "liu_etal_modules.csv")

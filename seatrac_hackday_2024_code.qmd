@@ -1,0 +1,820 @@
+---
+title: "seatrac_hackday_2024_code"
+author: "Madison Cox"
+format: 
+  html:
+    toc: true
+    self-contained: true
+editor: source
+---
+
+# Setup
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE, 
+  warning = FALSE, 
+  message = FALSE
+)
+```
+
+```{r}
+# Load packages
+library(tidyverse)   # For data manipulation and plotting
+library(stats)       # For basic statistical tests
+library(multcomp)    # For multiple comparison corrections
+library(lme4)        # For mixed-effects modeling
+library(broom)       # For tidying model outputs
+library(data.table)  # Efficient data handling
+library(edgeR)       # RNAseq data processing
+library(limma)       # RNAseq linear models
+library(ggrepel)     # Label points in scatterplot
+library(kimma)       # RNAseq linear mixed effects models
+library(BIGpicture)  # RNAseq plots
+library(patchwork)   # plotting
+library(ggExtra)     # plotting
+library(gt)
+library(gtExtras)
+select <- dplyr::select
+
+set.seed(543154315)
+
+# Load data
+data_dir <- '~/Documents/GitHub/seatrac-hackday-2024/data/'
+
+## granuloma data
+counts_granuloma <- readr::read_csv(file.path(data_dir, "foreman_etal_counts.csv"))
+meta_granuloma <- readr::read_csv(file.path(data_dir, "foreman_etal_meta.csv"))
+meta_granuloma <- meta_granuloma %>%
+  mutate(logCFU = log10(CFU + 1))
+brom <- read_csv(file.path(data_dir, "bromley_coarse_pseudobulk_counts.csv"))
+meta_brom <- read_csv(file.path(data_dir, "bromley_coarse_pseudobulk_counts.meta.csv"))
+meta_brom <- meta_brom %>%
+  rename(CFU = `CFU Total`) %>%
+  mutate(logCFU = log10(CFU + 1))
+```
+
+# Initial analysis of Foreman data
+## Filter out rare genes and normalize for CD8 and CD4 samples separately  
+```{r fig.width=5, fig.height=3}
+# CD8 associated
+meta_ss2 = meta_granuloma %>% filter(condition == "CD8_gran") 
+keep_ids2 = meta_ss2 %>% pull(sampleid)
+keep_ids2 = c('gene_id', keep_ids2)
+ncts_ss2 = counts_granuloma %>% dplyr::select(any_of(keep_ids2))
+ncts_ss_mat2 <- as.matrix(ncts_ss2[,-1])
+rownames(ncts_ss_mat2) = ncts_ss2$gene_id
+
+#CD4 associated
+meta_ss = meta_granuloma %>% filter(condition == "CD4_gran")
+keep_ids = meta_ss %>% pull(sampleid)
+keep_ids = c('gene_id', keep_ids)
+ncts_ss = counts_granuloma %>% dplyr::select(any_of(keep_ids))
+ncts_ss_mat <- as.matrix(ncts_ss[,-1])
+rownames(ncts_ss_mat) = ncts_ss$gene_id
+
+# Create the object for differential expression testing
+dge_o = DGEList(counts=ncts_ss_mat,
+                genes=data.frame("symbol" = rownames(ncts_ss_mat)),
+                samples=meta_ss,
+                group=meta_ss[['logCFU']])
+dge_o2 = DGEList(counts=ncts_ss_mat2,
+                genes=data.frame("symbol" = rownames(ncts_ss_mat2)),
+                samples=meta_ss2,
+                group=meta_ss2[['logCFU']])
+```
+
+For each dataset, I removed genes with expression in < 20% of samples and with < 10 CPM across samples
+
+```{r fig.width=5, fig.height=3}
+# filter low- abundance genes
+a1_c1 <- BIGpicture::plot_mv(dge_o, design = "~ logCFU") # add design info
+a1_c2 <- BIGpicture::plot_mv(dge_o2, design = "~ logCFU") # add design info
+
+minsample1 <- round(length(dge_o$samples$sampleid) * 0.2, 0)
+minsample2 <- round(length(dge_o2$samples$sampleid) * 0.2, 0)
+
+dge_o_abund <-  RNAetc::filter_rare(dge_o, min.CPM = 10, min.sample = minsample1,
+                                 gene.var="symbol")
+dge_o2_abund <-  RNAetc::filter_rare(dge_o2, min.CPM = 10, min.sample = minsample2,
+                                 gene.var="symbol")
+
+a2_c1 <- BIGpicture::plot_mv(dge_o_abund, design = "~ logCFU") # add design info
+a2_c2 <- BIGpicture::plot_mv(dge_o2_abund, design = "~ logCFU") # add design info
+
+
+```
+
+### CD4 before-and-after removing rare genes
+```{r fig.width=5, fig.height=7}
+a1_c1 / a2_c1
+```
+
+### CD8 before-and-after removing rare genes
+```{r fig.width=5, fig.height=7}
+a1_c2 / a2_c2
+```
+## Voom normalization
+```{r fig.width=10, fig.height=5}
+# Specify the model/design matrix
+design_temp = model.matrix(~logCFU, data=dge_o_abund$samples)
+design_temp2 = model.matrix(~logCFU, data=dge_o2_abund$samples)
+```
+
+### CD4
+```{r fig.width=10, fig.height=5}
+# Create the voom object and fit the model
+v <- voomWithQualityWeights(dge_o_abund, design=design_temp, plot=TRUE)
+```
+
+### CD8
+```{r fig.width=10, fig.height=5}
+v2 <- voomWithQualityWeights(dge_o2_abund, design=design_temp2, plot=TRUE)
+```
+
+## Model logCFU vs gene 
+
+### Just CD4_gran samples, association with logCFU
+
+```{r eval = FALSE}
+# Use the same voom object as with limma
+klm <- kmFit(dat = v,
+             model = "~logCFU + (1|subject)",
+             run_lme = TRUE,
+             libraryID="sampleid",
+             patientID="subject",
+             use_weights = TRUE,
+             metrics = FALSE,
+             processors=1)
+save(klm, file = "CD4_model.RData")
+```
+
+
+```{r}
+load("CD4_model.RData")
+summarise_kmFit(fdr = klm$lme) %>% gt() %>% gt_theme_538()
+
+plot_volcano(model_result = klm,
+             model = "lme", variables = "logCFU",
+             y_cutoff = 0.2, label = 10)
+```
+
+
+### Just CD4_gran samples, association with logCFU
+
+```{r eval = FALSE}
+# Use the same voom object as with limma
+klm2 <- kmFit(dat = v2,
+             model = "~logCFU + (1|subject)",
+             run_lme = TRUE,
+             libraryID="sampleid",
+             patientID="subject",
+             use_weights = TRUE,
+             metrics = FALSE,
+             processors=1)
+save(klm2, file = "CD8_model.RData")
+```
+
+
+```{r}
+load("CD8_model.RData")
+
+summarise_kmFit(fdr = klm2$lme) %>% gt() %>% gt_theme_538()
+
+plot_volcano(model_result = klm2,
+             model = "lme", variables = "logCFU",
+             y_cutoff = 0.2, label = 10)
+
+```
+
+## Get top hits for low CFU-associated genes in CD4 and CD8
+```{r}
+lCFU_sig <- klm$lme %>% 
+  filter(estimate < 0, 
+         FDR < 0.05,
+         variable == "logCFU") 
+lCFU_genes <- lCFU_sig %>% pull(gene) %>% unique()
+
+lCFU_sig2 <- klm2$lme %>% 
+  filter(estimate < 0, 
+         FDR < 0.05,
+         variable == "logCFU") 
+lCFU_genes2 <- lCFU_sig2 %>% pull(gene) %>% unique()
+```
+
+
+### Just CD4_gran samples, genes with negative association with logCFU
+
+```{r}
+mdf1 <- meta_ss %>% 
+  left_join(rownames_to_column(t(v$E) %>% as.data.frame(), var  = "sampleid"))
+mdf2 <- meta_ss2 %>% 
+  left_join(rownames_to_column(t(v2$E) %>% as.data.frame(), var  = "sampleid"))
+
+# Scatter-plot of Gene Expression vs. log-CFU
+plotlist_cd4_gran_lowCFU <- list()
+for(i in lCFU_genes){
+  plotlist_cd4_gran_lowCFU[[i]] <- local({
+    mdf1 <- mdf1
+    i <- i
+    sp <- ggplot(mdf1, aes(x = logCFU, y = get(i))) +
+  geom_point() +
+  geom_smooth(method = "lm", formula = y ~ x) +
+  labs(
+    title = paste("Correlation of", i, "with logCFU"),
+    x = "logCFU",
+    y = paste("Expression of", i)
+  ) +
+  theme_minimal()
+    
+    bp <- ggplot(mdf1, aes(x = condition, y = get(i))) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.2, alpha = 0.7) +
+  labs(
+    title = paste("Expression of", i, "by Condition"),
+    x = "Condition",
+    y = paste("Expression of", i)
+  ) +
+  theme_minimal()
+    
+    sp + bp
+  })
+}
+
+```
+
+
+```{r fig.width=12, fig.height=6}
+plotlist_cd4_gran_lowCFU
+```
+
+### Just CD8_gran samples, genes with negative association with logCFU
+
+```{r}
+# Scatter-plot of Gene Expression vs. log-CFU
+plotlist_cd8_gran_lowCFU <- list()
+for(i in lCFU_genes2){
+  plotlist_cd8_gran_lowCFU[[i]] <- local({
+    mdf2 <- mdf2
+    i <- i
+    sp <- ggplot(mdf2, aes(x = logCFU, y = get(i))) +
+  geom_point() +
+  geom_smooth(method = "lm", formula = y ~ x) +
+  labs(
+    title = paste("Correlation of", i, "with logCFU"),
+    x = "logCFU",
+    y = paste("Expression of", i)
+  ) +
+  theme_minimal()
+    
+    bp <- ggplot(mdf2, aes(x = condition, y = get(i))) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.2, alpha = 0.7) +
+  labs(
+    title = paste("Expression of", i, "by Condition"),
+    x = "Condition",
+    y = paste("Expression of", i)
+  ) +
+  theme_minimal()
+    
+    sp + bp
+  })
+}
+```
+
+
+```{r fig.width=12, fig.height=6}
+plotlist_cd8_gran_lowCFU
+```
+
+
+# Look for agreement with Bromley 
+
+
+```{r warning=FALSE, eval = FALSE}
+meta_brom_fix <- meta_brom[,-1] %>%
+  mutate(logCFU = log10(CFU + 1)) %>% 
+  mutate(sample = biosample_id) %>% 
+  select(-c(SubclusteringV2)) %>% 
+  filter(biosample_id %in% unique(brom$biosample_id)) %>%
+  distinct() 
+
+brom_list <- list()
+brom_test_list <- list()
+for(i in unique(brom$CoarseClustering)){
+  brom_wide <- brom[,-1] %>% 
+    filter(CoarseClustering == i) %>% 
+    select(-CoarseClustering) %>% 
+  pivot_wider(values_from = counts, names_from = biosample_id) %>% 
+    filter(gene %in% c(lCFU_genes,lCFU_genes2)) %>% 
+    column_to_rownames(var = "gene") 
+  meta_temp <- meta_brom_fix %>%
+    filter(CoarseClustering == i) %>% 
+    mutate(libID = biosample_id) %>% 
+    column_to_rownames(var = "biosample_id")
+  genes_temp <- data.frame("gene" = rownames(brom_wide),
+                           "gene2" = rownames(brom_wide)) %>% 
+    column_to_rownames(var = "gene2")
+  
+  vlist <- list()
+  vlist[["E"]] <- brom_wide
+  vlist[["targets"]] <- meta_temp
+  vlist[["genes"]] <- genes_temp
+  
+  kmod <- kmFit(dat = vlist,
+                model =  "~ logCFU*Group + (1|donor_id)",
+                run_lme = TRUE,
+                patientID = "donor_id", 
+                libraryID = "libID",
+                processors = 4)
+  
+  brom_list[[i]] <- vlist
+  brom_test_list[[i]] <- kmod$lme
+}
+save(brom_test_list, brom_list, file = "bromley_kimma.RData")
+```
+
+
+```{r warning=FALSE}
+load("bromley_kimma.RData")
+ggplot(meta_brom, aes(x = logCFU)) +
+  geom_density(fill = "blue", alpha = 0.3) +
+  labs(title = "Distribution of logCFU", x = "logCFU", y = "Density") +
+  theme_minimal()
+
+# Define function to preprocess gene-specific data
+prepare_ss <- function(gene) {
+  ss <- brom %>% filter(gene == !!gene)  # Subset for the specific gene
+  tot <- ss %>%
+    group_by(biosample_id) %>%
+    summarize(tot = sum(counts), .groups = "drop")
+  
+  ss <- ss %>%
+    left_join(tot, by = "biosample_id") %>%
+    left_join(meta_brom, by = c("biosample_id", "CoarseClustering")) %>%
+    mutate(
+      lcpm = log2((counts + 0.01) / tot),
+      cpm = counts / tot
+    )
+  
+  return(ss)
+}
+
+# Perform Spearman correlation for CD4 and CD8 genes
+genes_lowCFU_cd4 <- c(lCFU_genes)
+
+#cd4_genes <- c("TNFRSF4", "KLRB1", "CD40LG", "S100A11", "S100A4", "IL26", "BATF")
+#cd8_genes <- c("APOBEC3G", "IFNG", "TNF", "CCL1", "CCL20")
+
+#gene_list <- c(cd4_genes, cd8_genes)
+
+gene_list <- unique(genes_lowCFU_cd4)
+
+res <- lapply(gene_list, function(g) {
+  ss <- prepare_ss(g)
+  unique_clusters <- unique(ss$CoarseClustering)
+  
+  cluster_res <- lapply(unique_clusters, function(clust) {
+    tmp <- ss %>% filter(CoarseClustering == clust)
+    
+    # Calculate Spearman correlation
+    cor_res <- cor.test(tmp$cpm, tmp$logCFU, method = "spearman")
+    data.frame(
+      gene = g,
+      cluster = clust,
+      n = nrow(tmp),
+      rho = cor_res$estimate,
+      pvalue = cor_res$p.value
+    )
+  })
+  
+  do.call(rbind, cluster_res)
+})
+
+
+# Combine results into a single data frame
+res_df_cd4 <- do.call(rbind, res) %>%
+  arrange(pvalue) %>%
+  mutate(FDRq = p.adjust(pvalue, method = "fdr"))
+
+
+sig_both_lowCFU_cd4 <- res_df_cd4 %>% 
+  filter(FDRq < 0.2,
+         gene %in% gene_list,
+         rho < 0) %>% 
+  pull(gene) %>% unique()
+```
+
+## Sig negative corr in any cluster of Bromley, CD4_gran cells in Foreman (FDR < 0.2)
+
+P-values represent interaction between group and logCFU on gene expression
+
+```{r}
+brom_figlist_lowCFU_cd4 <- list()
+for(i in 1:length(sig_both_lowCFU_cd4)){
+  i <- 2
+  top_gene <- sig_both_lowCFU_cd4[i]
+  top_clusters <- res_df_cd4 %>% 
+    filter(gene == top_gene) %>% 
+    arrange(pvalue) %>% 
+    pull(cluster) %>% unique()
+  top_cluster <- top_clusters[1]
+  second_cluster <- top_clusters[2]
+  third_cluster <- top_clusters[3]
+  fourth_cluster <- top_clusters[4]
+  fifth_cluster <- top_clusters[5]
+
+  # Prepare data for visualization
+  ss <- prepare_ss(top_gene)
+
+  # Ensure Group has the specified ordering
+  ss <- ss %>%
+    mutate(Group = factor(Group, levels = c("IgG", "antiCD4", "Naïve")))
+
+  ss_top <- ss %>% filter(CoarseClustering == top_cluster)
+  ss_2 <- ss %>% filter(CoarseClustering == second_cluster)
+  ss_3 <- ss %>% filter(CoarseClustering == third_cluster)
+  ss_4 <- ss %>% filter(CoarseClustering == fourth_cluster)
+  ss_5 <- ss %>% filter(CoarseClustering == fifth_cluster)
+
+
+  # Visualization: Boxplot with stripplot overlay
+  brom_figlist_lowCFU_cd4[[top_gene]] <- local({
+    i <- i
+    top_gene <- top_gene
+    ss <- ss
+    ss_top <- ss_top
+    second_cluster <- second_cluster
+    third_cluster <- third_cluster
+    fourth_cluster <- fourth_cluster
+    fifth_cluster <- fifth_cluster
+    top_cluster <- top_cluster
+    ss_2 <- ss_2
+    ss_3 <- ss_3
+    ss_4 <- ss_4
+    ss_5 <- ss_5
+    top_clusters <- top_clusters
+    res_df_cd4 <- res_df_cd4
+    brom_test_list <- brom_test_list
+    
+    box <- ggplot(ss, aes(x = cpm, y = CoarseClustering, color = Group)) +
+      geom_boxplot(outlier.shape = NA) +
+      geom_jitter(position = position_jitterdodge(jitter.width = 0.2), alpha = 0.7) +
+  labs(
+    title = paste("Expression of", top_gene, "by Coarse Clustering"),
+    x = paste(top_gene, "expression (log2-CPM)"),
+    y = "Coarse Clustering"
+  ) +
+  theme_minimal()+ 
+      theme(legend.position = "top")
+    
+    lab1 <- brom_test_list[[top_cluster]] %>% 
+      filter(variable == "logCFU:Group",
+             gene == top_gene) %>% 
+      pull(FDR) %>% 
+      round(3)
+    lab1 <- ifelse(lab1 < 0.001, "FDR < 0.001", paste0("FDR = ", lab1))
+        
+    lab2 <- brom_test_list[[second_cluster]] %>% 
+      filter(variable == "logCFU:Group",
+             gene == top_gene) %>% 
+      pull(FDR) %>% 
+      round(3)
+    lab2 <- ifelse(lab2 < 0.001, "FDR < 0.001", paste0("FDR = ", lab2))
+        
+    lab3 <- brom_test_list[[third_cluster]] %>% 
+      filter(variable == "logCFU:Group",
+             gene == top_gene) %>% 
+      pull(FDR) %>% 
+      round(3)
+    lab3 <- ifelse(lab3 < 0.001, "FDR < 0.001", paste0("FDR = ", lab3))
+    
+    lab4 <- brom_test_list[[fourth_cluster]] %>% 
+      filter(variable == "logCFU:Group",
+             gene == top_gene) %>% 
+      pull(FDR) %>% 
+      round(3)
+    lab4 <- ifelse(lab4 < 0.001, "FDR < 0.001", paste0("FDR = ", lab4))
+        
+    lab5 <- brom_test_list[[fifth_cluster]] %>% 
+      filter(variable == "logCFU:Group",
+             gene == top_gene) %>% 
+      pull(FDR) %>% 
+      round(3)
+    lab5 <- ifelse(lab5 < 0.001, "FDR < 0.001", paste0("FDR = ", lab5))
+      
+    scatter1 <- ggplot(ss_top, aes(x = cpm, y = logCFU, color = Group)) +
+  geom_point(alpha = 0.7) +
+geom_smooth(method = "lm", se = FALSE) +
+       geom_smooth(method = "lm", se = FALSE, color = "black") +
+      labs(
+    title = paste(top_cluster, "rho = ", round(res_df_cd4$rho[which(res_df_cd4$gene == top_gene & res_df_cd4$cluster == top_cluster)], 2), ", ", lab1),
+    x = paste(top_gene, "expression (log2-CPM)"),
+    y = "logCFU"
+  ) +
+  theme_minimal()
+   scatter1 <- ggExtra::ggMarginal(scatter1, "density",groupColour = TRUE, groupFill = TRUE)
+    
+    scatter2 <- ggplot(ss, aes(x = cpm, y = logCFU, color = Group)) +
+  geom_point(alpha = 0.7) +
+geom_smooth(method = "lm", se = FALSE) +
+       geom_smooth(method = "lm", se = FALSE, color = "black") +
+      labs(
+    title = paste(top_gene, "expression across dataset"),
+    x = paste(top_gene, "expression (log2-CPM)"),
+    y = "logCFU"
+  ) +
+  theme_minimal()
+       scatter2 <- ggExtra::ggMarginal(scatter2, "density",groupColour = TRUE, groupFill = TRUE)
+
+        scatter3 <- ggplot(ss_2, aes(x = cpm, y = logCFU, color = Group)) +
+  geom_point(alpha = 0.7) +
+geom_smooth(method = "lm", se = FALSE) +
+       geom_smooth(method = "lm", se = FALSE, color = "black") +
+          labs(
+    title = paste(second_cluster, "rho = ", round(res_df_cd4$rho[which(res_df_cd4$gene == top_gene & res_df_cd4$cluster == second_cluster)], 2), ", ", lab2),
+    x = paste(top_gene, "expression (log2-CPM)"),
+    y = "logCFU"
+  ) +
+  theme_minimal()
+               scatter3 <- ggExtra::ggMarginal(scatter3, "density",groupColour = TRUE, groupFill = TRUE)
+
+                scatter4 <- ggplot(ss_3, aes(x = cpm, y = logCFU, color = Group)) +
+  geom_point(alpha = 0.7) +
+geom_smooth(method = "lm", se = FALSE) +
+       geom_smooth(method = "lm", se = FALSE, color = "black") +
+                  labs(
+    title = paste(third_cluster, "rho = ", round(res_df_cd4$rho[which(res_df_cd4$gene == top_gene & res_df_cd4$cluster == third_cluster)], 2), ", ", lab3),
+    x = paste(top_gene, "expression (log2-CPM)"),
+    y = "logCFU"
+  ) +
+  theme_minimal()
+                scatter4 <- ggExtra::ggMarginal(scatter4, "density",groupColour = TRUE, groupFill = TRUE)
+   scatter5 <- ggplot(ss_4, aes(x = cpm, y = logCFU, color = Group)) +
+  geom_point(alpha = 0.7) +
+geom_smooth(method = "lm", se = FALSE) +
+       geom_smooth(method = "lm", se = FALSE, color = "black") +
+     labs(
+    title = paste(fourth_cluster, "rho = ", round(res_df_cd4$rho[which(res_df_cd4$gene == top_gene & res_df_cd4$cluster == fourth_cluster)], 2), ", ", lab4),
+    x = paste(top_gene, "expression (log2-CPM)"),
+    y = "logCFU"
+  ) +
+  theme_minimal()
+   scatter5 <- ggExtra::ggMarginal(scatter5, "density",groupColour = TRUE, groupFill = TRUE)
+   
+      scatter6 <- ggplot(ss_5, aes(x = cpm, y = logCFU, color = Group)) +
+  geom_point(alpha = 0.7) +
+geom_smooth(method = "lm", se = FALSE) +
+       geom_smooth(method = "lm", se = FALSE, color = "black") +
+        labs(
+    title = paste(fifth_cluster, "rho = ", round(res_df_cd4$rho[which(res_df_cd4$gene == top_gene & res_df_cd4$cluster == fifth_cluster)], 2), ", ", lab5),
+    x = paste(top_gene, "expression (log2-CPM)"),
+    y = "logCFU"
+  ) +
+  theme_minimal()
+    scatter6 <- ggExtra::ggMarginal(scatter6, "density",groupColour = TRUE, groupFill = TRUE)
+        layout <- c(
+          "AAABB
+           CDEFG"
+        )
+    free(box + scatter2 + scatter1 + scatter3 + scatter4 + scatter5 + scatter6 + plot_layout(design = layout, guides = "collect"))
+  })
+}
+```
+
+
+```{r fig.height=10, fig.width=25}
+brom_figlist_lowCFU_cd4
+```
+
+
+## Sig negative corr in any cluster of Bromley, CD8_gran cells in Foreman (FDR < 0.2)
+
+P-values represent interaction between group and logCFU on gene expression
+
+```{r warning=FALSE}
+# Perform Spearman correlation for CD4 and CD8 genes
+genes_lowCFU_cd8 <- c(lCFU_genes2)
+
+#cd4_genes <- c("TNFRSF4", "KLRB1", "CD40LG", "S100A11", "S100A4", "IL26", "BATF")
+#cd8_genes <- c("APOBEC3G", "IFNG", "TNF", "CCL1", "CCL20")
+
+#gene_list <- c(cd4_genes, cd8_genes)
+
+gene_list <- unique(genes_lowCFU_cd8)
+
+res <- lapply(gene_list, function(g) {
+  ss <- prepare_ss(g)
+  unique_clusters <- unique(ss$CoarseClustering)
+  
+  cluster_res <- lapply(unique_clusters, function(clust) {
+    tmp <- ss %>% filter(CoarseClustering == clust)
+    
+    # Calculate Spearman correlation
+    cor_res <- cor.test(tmp$cpm, tmp$logCFU, method = "spearman")
+    data.frame(
+      gene = g,
+      cluster = clust,
+      n = nrow(tmp),
+      rho = cor_res$estimate,
+      pvalue = cor_res$p.value
+    )
+  })
+  
+  do.call(rbind, cluster_res)
+})
+
+
+# Combine results into a single data frame
+res_df_cd8 <- do.call(rbind, res) %>%
+  arrange(pvalue) %>%
+  mutate(FDRq = p.adjust(pvalue, method = "fdr"))
+
+sig_both_lowCFU_cd8 <- res_df_cd8 %>% 
+  filter(FDRq < 0.2,
+         gene %in% gene_list,
+         rho < 0) %>% 
+  pull(gene) %>% unique()
+
+```
+
+
+```{r}
+brom_figlist_lowCFU_cd8 <- list()
+for(i in 1:length(sig_both_lowCFU_cd8)){
+
+  top_gene <- sig_both_lowCFU_cd8[i]
+  top_clusters <- res_df_cd8 %>% 
+    filter(gene == top_gene) %>% 
+    arrange(pvalue) %>% 
+    pull(cluster) %>% unique()
+  top_cluster <- top_clusters[1]
+  second_cluster <- top_clusters[2]
+  third_cluster <- top_clusters[3]
+  fourth_cluster <- top_clusters[4]
+  fifth_cluster <- top_clusters[5]
+
+  # Prepare data for visualization
+  ss <- prepare_ss(top_gene)
+
+  # Ensure Group has the specified ordering
+  ss <- ss %>%
+    mutate(Group = factor(Group, levels = c("IgG", "antiCD4", "Naïve")))
+
+  ss_top <- ss %>% filter(CoarseClustering == top_cluster)
+  ss_2 <- ss %>% filter(CoarseClustering == second_cluster)
+  ss_3 <- ss %>% filter(CoarseClustering == third_cluster)
+  ss_4 <- ss %>% filter(CoarseClustering == fourth_cluster)
+  ss_5 <- ss %>% filter(CoarseClustering == fifth_cluster)
+
+
+  # Visualization: Boxplot with stripplot overlay
+  brom_figlist_lowCFU_cd8[[top_gene]] <- local({
+    i <- i
+    top_gene <- top_gene
+    ss <- ss
+    ss_top <- ss_top
+    second_cluster <- second_cluster
+    third_cluster <- third_cluster
+    fourth_cluster <- fourth_cluster
+    fifth_cluster <- fifth_cluster
+    top_cluster <- top_cluster
+    ss_2 <- ss_2
+    ss_3 <- ss_3
+    ss_4 <- ss_4
+    ss_5 <- ss_5
+    top_clusters <- top_clusters
+    res_df_cd8 <- res_df_cd8
+    
+    box <- ggplot(ss, aes(x = cpm, y = CoarseClustering, color = Group)) +
+      geom_boxplot(outlier.shape = NA) +
+      geom_jitter(position = position_jitterdodge(jitter.width = 0.2), alpha = 0.7) +
+  labs(
+    title = paste("Expression of", top_gene, "by Coarse Clustering"),
+    x = paste(top_gene, "expression (log2-CPM)"),
+    y = "Coarse Clustering"
+  ) +
+  theme_minimal()+ 
+      theme(legend.position = "top")
+    
+    lab1 <- brom_test_list[[top_cluster]] %>% 
+      filter(variable == "logCFU:Group",
+             gene == top_gene) %>% 
+      pull(FDR) %>% 
+      round(3)
+    lab1 <- ifelse(lab1 < 0.001, "FDR < 0.001", paste0("FDR = ", lab1))
+        
+    lab2 <- brom_test_list[[second_cluster]] %>% 
+      filter(variable == "logCFU:Group",
+             gene == top_gene) %>% 
+      pull(FDR) %>% 
+      round(3)
+    lab2 <- ifelse(lab2 < 0.001, "FDR < 0.001", paste0("FDR = ", lab2))
+        
+    lab3 <- brom_test_list[[third_cluster]] %>% 
+      filter(variable == "logCFU:Group",
+             gene == top_gene) %>% 
+      pull(FDR) %>% 
+      round(3)
+    lab3 <- ifelse(lab3 < 0.001, "FDR < 0.001", paste0("FDR = ", lab3))
+    
+    lab4 <- brom_test_list[[fourth_cluster]] %>% 
+      filter(variable == "logCFU:Group",
+             gene == top_gene) %>% 
+      pull(FDR) %>% 
+      round(3)
+    lab4 <- ifelse(lab4 < 0.001, "FDR < 0.001", paste0("FDR = ", lab4))
+        
+    lab5 <- brom_test_list[[fifth_cluster]] %>% 
+      filter(variable == "logCFU:Group",
+             gene == top_gene) %>% 
+      pull(FDR) %>% 
+      round(3)
+    lab5 <- ifelse(lab5 < 0.001, "FDR < 0.001", paste0("FDR = ", lab5))
+    
+    scatter1 <- ggplot(ss_top, aes(x = cpm, y = logCFU, color = Group)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "lm", se = FALSE) +
+       geom_smooth(method = "lm", se = FALSE, color = "black") +
+  #geom_smooth(method = "lm", se = FALSE, color = "black") +
+  labs(
+    title = paste(top_cluster, "rho = ", round(res_df_cd8$rho[which(res_df_cd8$gene == top_gene & res_df_cd8$cluster == top_cluster)], 2), ", ", lab1),
+    x = paste(top_gene, "expression (log2-CPM)"),
+    y = "logCFU"
+  ) +
+  theme_minimal()
+    
+    scatter2 <- ggplot(ss, aes(x = cpm, y = logCFU, color = Group)) +
+  geom_point(alpha = 0.7) +
+geom_smooth(method = "lm", se = FALSE) +
+       geom_smooth(method = "lm", se = FALSE, color = "black") +
+      labs(
+    title = paste(top_gene, "expression across dataset"),
+    x = paste(top_gene, "expression (log2-CPM)"),
+    y = "logCFU"
+  ) +
+  theme_minimal()
+    
+        scatter3 <- ggplot(ss_2, aes(x = cpm, y = logCFU, color = Group)) +
+  geom_point(alpha = 0.7) +
+geom_smooth(method = "lm", se = FALSE) +
+       geom_smooth(method = "lm", se = FALSE, color = "black") +
+          labs(
+    title = paste(second_cluster, "rho = ", round(res_df_cd8$rho[which(res_df_cd8$gene == top_gene & res_df_cd8$cluster == second_cluster)], 2), ", ", lab2),
+    x = paste(top_gene, "expression (log2-CPM)"),
+    y = "logCFU"
+  ) +
+  theme_minimal()
+        
+                scatter4 <- ggplot(ss_3, aes(x = cpm, y = logCFU, color = Group)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  labs(
+    title = paste(third_cluster, "rho = ", round(res_df_cd8$rho[which(res_df_cd8$gene == top_gene & res_df_cd8$cluster == third_cluster)], 2), ", ", lab3),
+    x = paste(top_gene, "expression (log2-CPM)"),
+    y = "logCFU"
+  ) +
+  theme_minimal()
+                
+   scatter5 <- ggplot(ss_4, aes(x = cpm, y = logCFU, color = Group)) +
+  geom_point(alpha = 0.7) +
+geom_smooth(method = "lm", se = FALSE) +
+       geom_smooth(method = "lm", se = FALSE, color = "black") +
+     labs(
+    title = paste(fourth_cluster, "rho = ", round(res_df_cd8$rho[which(res_df_cd8$gene == top_gene & res_df_cd8$cluster == fourth_cluster)], 2), ", ", lab4),
+    x = paste(top_gene, "expression (log2-CPM)"),
+    y = "logCFU"
+  ) +
+  theme_minimal()
+      scatter6 <- ggplot(ss_5, aes(x = cpm, y = logCFU, color = Group)) +
+  geom_point(alpha = 0.7) +
+geom_smooth(method = "lm", se = FALSE) +
+       geom_smooth(method = "lm", se = FALSE, color = "black") +
+        labs(
+    title = paste(fifth_cluster, "rho = ", round(res_df_cd8$rho[which(res_df_cd8$gene == top_gene & res_df_cd8$cluster == fifth_cluster)], 2), ", ", lab5),
+    x = paste(top_gene, "expression (log2-CPM)"),
+    y = "logCFU"
+  ) +
+  theme_minimal()
+      
+   scatter1 <- ggExtra::ggMarginal(scatter1, "density",groupColour = TRUE, groupFill = TRUE)
+   scatter2 <- ggExtra::ggMarginal(scatter2, "density",groupColour = TRUE, groupFill = TRUE)
+   scatter3 <- ggExtra::ggMarginal(scatter3, "density",groupColour = TRUE, groupFill = TRUE)
+   scatter4 <- ggExtra::ggMarginal(scatter4, "density",groupColour = TRUE, groupFill = TRUE)
+   scatter5 <- ggExtra::ggMarginal(scatter5, "density",groupColour = TRUE, groupFill = TRUE)
+   scatter6 <- ggExtra::ggMarginal(scatter6, "density",groupColour = TRUE, groupFill = TRUE)
+
+    
+        layout <- c(
+          "AAABB
+           CDEFG"
+        )
+    free(box + scatter2 + scatter1 + scatter3 + scatter4 + scatter5 + scatter6 + plot_layout(design = layout, guides = "collect"))
+  })
+}
+```
+
+
+```{r fig.height=10, fig.width=25}
+brom_figlist_lowCFU_cd8
+```
+

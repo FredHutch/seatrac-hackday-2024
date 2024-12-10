@@ -64,7 +64,7 @@ library(BIGpicture)  # RNAseq plots
 select <- dplyr::select
 
 # NOTE --- REPLACE the <data_dir> FOLDER DESTINTATION AS APPROPRIATE
-data_dir <- '/home/processed_data'
+data_dir <- '~/Documents/GitHub/seatrac-hackday-2024/data/'
 # data_dir <- '/fh/fast/gilbert_p/fg_data/SEATRAC/TB_hackday_2024/processed_data'
 # data_dir <- "data/"
 

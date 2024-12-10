@@ -2,6 +2,7 @@
 */.ipynb_checkpoints/*
 .Rproj.user
 *.Rhistory
+*.csv
 
 # MAC
 *.DS_Store
